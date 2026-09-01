@@ -1,0 +1,131 @@
+from pathlib import Path
+
+import pytest
+from langchain_core.messages import AIMessage
+
+from agentic_rag.agents import (
+    AgentOutputError,
+    DataRetrieverAgent,
+    ReportGeneratorAgent,
+    build_search_tool,
+)
+from agentic_rag.models import GeneratedReport, RetrievalResult, RetrievedChunk, UserQuery
+from agentic_rag.retrieval import BM25Retriever, load_knowledge_chunks
+
+
+class FakeToolCallingModel:
+    def __init__(self, response: AIMessage) -> None:
+        self.response = response
+        self.bound_kwargs: dict | None = None
+
+    def bind_tools(self, tools, **kwargs):
+        self.bound_kwargs = {"tools": tools, **kwargs}
+        return self
+
+    def invoke(self, messages):
+        assert len(messages) == 2
+        return self.response
+
+
+class FakeStructuredModel:
+    def __init__(self, response) -> None:
+        self.response = response
+        self.structured_kwargs: dict | None = None
+
+    def with_structured_output(self, schema, **kwargs):
+        self.structured_kwargs = {"schema": schema, **kwargs}
+        return self
+
+    def invoke(self, messages):
+        assert len(messages) == 2
+        return self.response
+
+
+def make_search_tool():
+    chunks = load_knowledge_chunks(Path("tests/fixtures/sample_travel_policy.txt"))
+    return build_search_tool(BM25Retriever(chunks), top_k=2, min_score=0.0)
+
+
+def make_retrieval() -> RetrievalResult:
+    return RetrievalResult(
+        search_query="hotel receipts",
+        chunks=[
+            RetrievedChunk(
+                chunk_id="POLICY-001",
+                text="Hotel claims require an itemized receipt.",
+                source="fixture.txt",
+                score=1.2,
+            )
+        ],
+    )
+
+
+def test_search_tool_returns_validated_contract() -> None:
+    raw_result = make_search_tool().invoke({"query": "When must expenses be submitted?"})
+    result = RetrievalResult.model_validate(raw_result)
+
+    assert result.chunks[0].chunk_id == "TEST-TRAVEL-003"
+
+
+def test_data_retriever_forces_and_executes_approved_tool() -> None:
+    model = FakeToolCallingModel(
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "search_knowledge_base",
+                    "args": {"query": "Who approves international travel?"},
+                    "id": "call-1",
+                    "type": "tool_call",
+                }
+            ],
+        )
+    )
+    agent = DataRetrieverAgent(model, make_search_tool())
+
+    result = agent.retrieve(UserQuery(query="Who approves international travel?"))
+
+    assert result.chunks[0].chunk_id == "TEST-TRAVEL-001"
+    assert model.bound_kwargs["tool_choice"] == "search_knowledge_base"
+    assert model.bound_kwargs["parallel_tool_calls"] is False
+
+
+def test_data_retriever_rejects_missing_tool_call() -> None:
+    agent = DataRetrieverAgent(
+        FakeToolCallingModel(AIMessage(content="No tool")), make_search_tool()
+    )
+
+    with pytest.raises(AgentOutputError, match="exactly one tool call"):
+        agent.retrieve(UserQuery(query="Who approves travel?"))
+
+
+def test_report_generator_returns_grounded_report() -> None:
+    expected = GeneratedReport(
+        answer="Hotel claims require an itemized receipt.",
+        used_chunk_ids=["POLICY-001"],
+        insufficient_context=False,
+    )
+    model = FakeStructuredModel(expected)
+
+    result = ReportGeneratorAgent(model).generate(
+        UserQuery(query="Do hotel claims need receipts?"), make_retrieval()
+    )
+
+    assert result == expected
+    assert model.structured_kwargs["schema"] is GeneratedReport
+    assert model.structured_kwargs["method"] == "json_schema"
+
+
+def test_report_generator_rejects_unknown_source() -> None:
+    model = FakeStructuredModel(
+        GeneratedReport(
+            answer="Receipts are required.",
+            used_chunk_ids=["POLICY-999"],
+            insufficient_context=False,
+        )
+    )
+
+    with pytest.raises(AgentOutputError, match="unknown chunk IDs"):
+        ReportGeneratorAgent(model).generate(
+            UserQuery(query="Are receipts required?"), make_retrieval()
+        )

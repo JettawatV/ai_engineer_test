@@ -1,0 +1,16 @@
+[TEST-TRAVEL-001: INTERNATIONAL APPROVAL]
+Employees must obtain written approval from their division head before booking international business travel.
+
+[TEST-TRAVEL-002: BOOKING]
+All flights and hotels must be booked through the approved corporate travel provider unless the service is unavailable during an emergency.
+
+[TEST-TRAVEL-003: EXPENSE DEADLINE]
+Out-of-pocket travel expenses must be submitted within 30 calendar days after the traveler returns.
+
+[TEST-TRAVEL-004: HOTEL AND RECEIPTS]
+Hotel claims require an itemized receipt. Personal entertainment and minibar charges are not reimbursable.
+
+[TEST-TRAVEL-005: GROUND TRANSPORT]
+Public transport should be used when safe and practical. Taxis may be claimed when public transport is unavailable or creates a documented safety concern.
+
+

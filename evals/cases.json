@@ -1,0 +1,21 @@
+[
+  {
+    "id": "direct-policy-match",
+    "query": "Who must approve international business travel?",
+    "expected_chunk_ids": ["TEST-TRAVEL-001"],
+    "must_include": ["division head"]
+  },
+  {
+    "id": "expense-deadline",
+    "query": "How soon must I submit an out-of-pocket travel expense?",
+    "expected_chunk_ids": ["TEST-TRAVEL-003"],
+    "must_include": ["30 calendar days"]
+  },
+  {
+    "id": "unsupported-question",
+    "query": "What is the password rotation policy?",
+    "expected_chunk_ids": [],
+    "must_include": []
+  }
+]
+

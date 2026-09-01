@@ -1,0 +1,6 @@
+langchain-openai==1.6.0
+langgraph==1.2.11
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
+rank-bm25==0.2.2
