@@ -1,6 +1,5 @@
 from math import isfinite
 from typing import Annotated
-
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -32,7 +31,7 @@ class KnowledgeChunk(AppModel):
 
 
 class RetrievedChunk(KnowledgeChunk):
-    score: float = Field(ge=0.0)
+    score: float = Field(ge=-1.0, le=1.0)
 
     @field_validator("score")
     @classmethod
@@ -44,7 +43,7 @@ class RetrievedChunk(KnowledgeChunk):
 
 class RetrievalResult(AppModel):
     search_query: QueryText
-    chunks: list[RetrievedChunk] = Field(default_factory=list, max_length=10)
+    chunks: list[RetrievedChunk] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def chunk_ids_must_be_unique(self) -> "RetrievalResult":
@@ -56,7 +55,7 @@ class RetrievalResult(AppModel):
 
 class GeneratedReport(AppModel):
     answer: AnswerText
-    used_chunk_ids: list[ChunkId] = Field(default_factory=list, max_length=10)
+    used_chunk_ids: list[ChunkId] = Field(default_factory=list)
     insufficient_context: bool
 
     @model_validator(mode="after")

@@ -1,8 +1,7 @@
 import argparse
 import logging
 from collections.abc import Sequence
-
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import ValidationError
 
 from .agents import (
@@ -12,7 +11,7 @@ from .agents import (
     build_search_tool,
 )
 from .config import Settings
-from .retrieval import BM25Retriever, KnowledgeBaseError, load_knowledge_chunks
+from .retrieval import KnowledgeBaseError
 from .workflow import build_workflow, invoke_workflow
 
 LOGGER = logging.getLogger(__name__)
@@ -20,13 +19,13 @@ LOGGER = logging.getLogger(__name__)
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Ask grounded questions about a local policy knowledge base."
+        description="Ask grounded questions about a local knowledge base."
     )
     parser.add_argument("query", nargs="*", help="Question to ask")
     parser.add_argument(
         "--show-sources",
         action="store_true",
-        help="Display retrieved chunk IDs and BM25 scores",
+        help="Display retrieved chunk IDs and semantic similarity scores",
     )
     parser.add_argument(
         "--interactive",
@@ -40,15 +39,19 @@ def build_parser() -> argparse.ArgumentParser:
 def build_application(settings: Settings):
     """Wire production dependencies without making an OpenAI request."""
 
-    retriever = BM25Retriever(load_knowledge_chunks(settings.knowledge_base_path))
+    api_key = settings.openai_api_key.get_secret_value()
+    embeddings = OpenAIEmbeddings(
+        model=settings.openai_embedding_model,
+        api_key=api_key,
+    )
     search_tool = build_search_tool(
-        retriever,
-        top_k=settings.retrieval_top_k,
+        settings.knowledge_base_path,
+        embeddings,
         min_score=settings.retrieval_min_score,
     )
     model = ChatOpenAI(
         model=settings.openai_model,
-        api_key=settings.openai_api_key.get_secret_value(),
+        api_key=api_key,
         max_retries=2,
     )
     return build_workflow(

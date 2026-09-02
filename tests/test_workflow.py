@@ -15,7 +15,7 @@ class FakeRetrieverAgent:
                     chunk_id="POLICY-001",
                     text="International travel requires division-head approval.",
                     source="fixture.txt",
-                    score=2.5,
+                    score=0.9,
                 )
             ],
         )

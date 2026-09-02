@@ -15,8 +15,15 @@ class Settings(BaseSettings):
 
     openai_api_key: SecretStr = Field(validation_alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-5-mini", validation_alias="OPENAI_MODEL")
+    openai_embedding_model: str = Field(
+        default="text-embedding-3-small", validation_alias="OPENAI_EMBEDDING_MODEL"
+    )
     knowledge_base_path: Path = Field(
         default=Path("knowledge_base.txt"), validation_alias="KNOWLEDGE_BASE_PATH"
     )
-    retrieval_top_k: int = Field(default=3, ge=1, le=10, validation_alias="RETRIEVAL_TOP_K")
-    retrieval_min_score: float = Field(default=0.0, ge=0.0, validation_alias="RETRIEVAL_MIN_SCORE")
+    retrieval_min_score: float = Field(
+        default=0.3,
+        ge=-1.0,
+        le=1.0,
+        validation_alias="RETRIEVAL_MIN_SCORE",
+    )

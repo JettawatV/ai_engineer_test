@@ -4,13 +4,13 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from agentic_rag.agents import (
+    REPORT_PROMPT,
     AgentOutputError,
     DataRetrieverAgent,
     ReportGeneratorAgent,
     build_search_tool,
 )
 from agentic_rag.models import GeneratedReport, RetrievalResult, RetrievedChunk, UserQuery
-from agentic_rag.retrieval import BM25Retriever, load_knowledge_chunks
 
 
 class FakeToolCallingModel:
@@ -41,9 +41,10 @@ class FakeStructuredModel:
         return self.response
 
 
-def make_search_tool():
-    chunks = load_knowledge_chunks(Path("tests/fixtures/sample_travel_policy.txt"))
-    return build_search_tool(BM25Retriever(chunks), top_k=2, min_score=0.0)
+def make_search_tool(embeddings):
+    return build_search_tool(
+        Path("tests/fixtures/sample_travel_policy.txt"), embeddings, min_score=0.3
+    )
 
 
 def make_retrieval() -> RetrievalResult:
@@ -54,20 +55,22 @@ def make_retrieval() -> RetrievalResult:
                 chunk_id="POLICY-001",
                 text="Hotel claims require an itemized receipt.",
                 source="fixture.txt",
-                score=1.2,
+                score=0.82,
             )
         ],
     )
 
 
-def test_search_tool_returns_validated_contract() -> None:
-    raw_result = make_search_tool().invoke({"query": "When must expenses be submitted?"})
+def test_search_tool_returns_validated_contract(travel_embeddings) -> None:
+    raw_result = make_search_tool(travel_embeddings).invoke(
+        {"query": "When must expenses be submitted?"}
+    )
     result = RetrievalResult.model_validate(raw_result)
 
     assert result.chunks[0].chunk_id == "TEST-TRAVEL-003"
 
 
-def test_data_retriever_forces_and_executes_approved_tool() -> None:
+def test_data_retriever_forces_and_executes_approved_tool(travel_embeddings) -> None:
     model = FakeToolCallingModel(
         AIMessage(
             content="",
@@ -81,18 +84,25 @@ def test_data_retriever_forces_and_executes_approved_tool() -> None:
             ],
         )
     )
-    agent = DataRetrieverAgent(model, make_search_tool())
+    agent = DataRetrieverAgent(model, make_search_tool(travel_embeddings))
 
     result = agent.retrieve(UserQuery(query="Who approves international travel?"))
+    agent.retrieve(UserQuery(query="Who approves international travel?"))
 
     assert result.chunks[0].chunk_id == "TEST-TRAVEL-001"
+    assert travel_embeddings.document_calls == 1
+    assert travel_embeddings.query_calls == [
+        "Who approves international travel?",
+        "Who approves international travel?",
+    ]
     assert model.bound_kwargs["tool_choice"] == "search_knowledge_base"
     assert model.bound_kwargs["parallel_tool_calls"] is False
 
 
-def test_data_retriever_rejects_missing_tool_call() -> None:
+def test_data_retriever_rejects_missing_tool_call(travel_embeddings) -> None:
     agent = DataRetrieverAgent(
-        FakeToolCallingModel(AIMessage(content="No tool")), make_search_tool()
+        FakeToolCallingModel(AIMessage(content="No tool")),
+        make_search_tool(travel_embeddings),
     )
 
     with pytest.raises(AgentOutputError, match="exactly one tool call"):
@@ -114,6 +124,11 @@ def test_report_generator_returns_grounded_report() -> None:
     assert result == expected
     assert model.structured_kwargs["schema"] is GeneratedReport
     assert model.structured_kwargs["method"] == "json_schema"
+
+
+def test_report_prompt_matches_required_output_quality() -> None:
+    for requirement in ("comprehensive", "cohesive", "non-redundant", "well-formatted"):
+        assert requirement in REPORT_PROMPT
 
 
 def test_report_generator_rejects_unknown_source() -> None:

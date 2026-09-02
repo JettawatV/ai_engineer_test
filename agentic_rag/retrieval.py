@@ -1,16 +1,12 @@
 import re
 import unicodedata
+from math import isfinite, sqrt
 from pathlib import Path
-from rank_bm25 import BM25Okapi
+from langchain_core.embeddings import Embeddings
 from .models import KnowledgeChunk, RetrievalResult, RetrievedChunk
 
-TOKEN_PATTERN = re.compile(r"[^\W_]+(?:'[^\W_]+)?", flags=re.UNICODE)
 CHUNK_HEADER = re.compile(
     r"^\[(?P<chunk_id>[A-Z0-9][A-Z0-9_-]{1,63})(?::[^\]]+)?\]\s*(?P<inline>.*)$"
-)
-ENGLISH_FUNCTION_WORDS = frozenset(
-    "a an and are as at be by for from has have how in is it of on or that the this to was "
-    "were what when where which who why with".split()
 )
 
 
@@ -22,17 +18,12 @@ def normalize_text(text: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", text).casefold().split())
 
 
-def tokenize(text: str) -> list[str]:
-    return [
-        token
-        for token in TOKEN_PATTERN.findall(normalize_text(text))
-        if token not in ENGLISH_FUNCTION_WORDS
-    ]
-
-
 def load_knowledge_chunks(path: Path) -> list[KnowledgeChunk]:
     """Load validated knowledge chunks from a UTF-8 text file.
-    Chunks must be separated by blank lines and begin with a stable bracketed ID.
+
+    Plain paragraphs receive deterministic IDs based on document order. Explicit
+    bracketed IDs remain supported when stable, human-readable IDs are preferred.
+
     Raises:
         KnowledgeBaseError: If the file is missing, unreadable, empty, or malformed.
     """
@@ -50,6 +41,8 @@ def load_knowledge_chunks(path: Path) -> list[KnowledgeChunk]:
     chunks: list[KnowledgeChunk] = []
     seen_ids: set[str] = set()
     seen_text: set[str] = set()
+    pending_heading: str | None = None
+    auto_id = 1
 
     for block in re.split(r"\n\s*\n", raw_text.replace("\r\n", "\n")):
         lines = [line.strip() for line in block.splitlines() if line.strip()]
@@ -57,18 +50,25 @@ def load_knowledge_chunks(path: Path) -> list[KnowledgeChunk]:
             continue
 
         match = CHUNK_HEADER.match(lines[0])
-        if match is None:
-            raise KnowledgeBaseError(
-                "Every knowledge chunk must start with an ID such as [POLICY-001: SHORT TITLE]"
-            )
+        if match:
+            chunk_id = match.group("chunk_id")
+            content_lines = [match.group("inline"), *lines[1:]]
+        else:
+            content_lines = [line for line in lines if not line.startswith("#")]
+            if len(content_lines) == 1 and content_lines[0].endswith(":"):
+                pending_heading = content_lines[0]
+                continue
 
-        chunk_id = match.group("chunk_id")
-        body = " ".join(
-            line
-            for line in [match.group("inline"), *lines[1:]]
-            if line and not line.startswith("#")
-        )
-        body = " ".join(body.split())
+            while f"KB-{auto_id:03d}" in seen_ids:
+                auto_id += 1
+            chunk_id = f"KB-{auto_id:03d}"
+            auto_id += 1
+
+        body_lines = [line for line in content_lines if line and not line.startswith("#")]
+        if pending_heading:
+            body_lines.insert(0, pending_heading)
+            pending_heading = None
+        body = "\n".join(body_lines).strip()
 
         if not body:
             raise KnowledgeBaseError(f"Knowledge chunk {chunk_id} has no content")
@@ -81,54 +81,92 @@ def load_knowledge_chunks(path: Path) -> list[KnowledgeChunk]:
         seen_ids.add(chunk_id)
         seen_text.add(normalize_text(body))
 
+    if pending_heading:
+        raise KnowledgeBaseError(f"Knowledge heading has no following content: {pending_heading}")
     if not chunks:
-        raise KnowledgeBaseError(
-            "Knowledge base contains no policy chunks. Add content using the documented format."
-        )
+        raise KnowledgeBaseError("Knowledge base contains no searchable paragraphs.")
     return chunks
 
 
-class BM25Retriever:
-    """Rank local knowledge chunks using deterministic lexical search."""
+def _validate_vector(vector: list[float], *, label: str) -> tuple[float, ...]:
+    if not vector:
+        raise KnowledgeBaseError(f"{label} embedding is empty")
 
-    def __init__(self, chunks: list[KnowledgeChunk]) -> None:
+    values = tuple(float(value) for value in vector)
+    if not all(isfinite(value) for value in values):
+        raise KnowledgeBaseError(f"{label} embedding contains a non-finite value")
+    if not any(values):
+        raise KnowledgeBaseError(f"{label} embedding has zero magnitude")
+    return values
+
+
+def cosine_similarity(left: tuple[float, ...], right: tuple[float, ...]) -> float:
+    """Calculate cosine similarity for two validated embedding vectors."""
+
+    if len(left) != len(right):
+        raise KnowledgeBaseError("Embedding vectors have inconsistent dimensions")
+
+    dot_product = sum(a * b for a, b in zip(left, right, strict=True))
+    left_magnitude = sqrt(sum(value * value for value in left))
+    right_magnitude = sqrt(sum(value * value for value in right))
+    similarity = dot_product / (left_magnitude * right_magnitude)
+    return max(-1.0, min(1.0, similarity))
+
+
+class SemanticRetriever:
+    """Rank local knowledge chunks by embedding cosine similarity."""
+
+    def __init__(self, chunks: list[KnowledgeChunk], embeddings: Embeddings) -> None:
         if not chunks:
             raise KnowledgeBaseError("At least one knowledge chunk is required")
 
-        tokenized_corpus = [tokenize(chunk.text) for chunk in chunks]
-        empty_ids = [
-            chunk.chunk_id
-            for chunk, tokens in zip(chunks, tokenized_corpus, strict=True)
-            if not tokens
-        ]
-        if empty_ids:
-            raise KnowledgeBaseError(
-                f"Knowledge chunks contain no searchable terms: {', '.join(empty_ids)}"
-            )
-
         self._chunks = list(chunks)
-        self._index = BM25Okapi(tokenized_corpus)
+        self._embeddings = embeddings
+        self._document_vectors: list[tuple[float, ...]] | None = None
 
-    def search(self, query: str, *, top_k: int, min_score: float) -> RetrievalResult:
-        """Return the highest-scoring chunks above the configured score floor."""
+    def _get_document_vectors(self) -> list[tuple[float, ...]]:
+        if self._document_vectors is not None:
+            return self._document_vectors
+
+        raw_vectors = self._embeddings.embed_documents([chunk.text for chunk in self._chunks])
+        if len(raw_vectors) != len(self._chunks):
+            raise KnowledgeBaseError("Embedding provider returned an unexpected vector count")
+
+        vectors = [
+            _validate_vector(vector, label=f"Knowledge chunk {chunk.chunk_id}")
+            for chunk, vector in zip(self._chunks, raw_vectors, strict=True)
+        ]
+        dimensions = {len(vector) for vector in vectors}
+        if len(dimensions) != 1:
+            raise KnowledgeBaseError("Knowledge embeddings have inconsistent dimensions")
+
+        self._document_vectors = vectors
+        return vectors
+
+    def search(self, query: str, *, min_score: float) -> RetrievalResult:
+        """Embed one query and return all chunks above the similarity floor."""
 
         cleaned_query = " ".join(query.split())
-        query_tokens = tokenize(cleaned_query)
-        if not query_tokens:
+        if not cleaned_query:
             return RetrievalResult(search_query=cleaned_query or query, chunks=[])
 
+        query_vector = _validate_vector(self._embeddings.embed_query(cleaned_query), label="Query")
+        document_vectors = self._get_document_vectors()
         ranked = sorted(
-            zip(self._chunks, self._index.get_scores(query_tokens), strict=True),
-            key=lambda item: (-float(item[1]), item[0].chunk_id),
+            (
+                (chunk, cosine_similarity(query_vector, vector))
+                for chunk, vector in zip(self._chunks, document_vectors, strict=True)
+            ),
+            key=lambda item: (-item[1], item[0].chunk_id),
         )
         chunks = [
             RetrievedChunk(
                 chunk_id=chunk.chunk_id,
                 text=chunk.text,
                 source=chunk.source,
-                score=max(0.0, float(score)),
+                score=score,
             )
             for chunk, score in ranked
-            if float(score) > min_score
-        ][:top_k]
+            if score > min_score
+        ]
         return RetrievalResult(search_query=cleaned_query, chunks=chunks)

@@ -25,7 +25,7 @@ def make_result() -> WorkflowResult:
                     chunk_id="POLICY-001",
                     text="Receipts are required.",
                     source="fixture.txt",
-                    score=1.25,
+                    score=0.82,
                 )
             ],
         ),
@@ -56,10 +56,10 @@ def test_settings_keep_api_key_secret() -> None:
     settings = Settings(
         openai_api_key="sk-test-value",
         knowledge_base_path=Path("tests/fixtures/sample_travel_policy.txt"),
-        retrieval_top_k=2,
     )
 
     assert settings.openai_model == "gpt-5-mini"
+    assert settings.openai_embedding_model == "text-embedding-3-small"
     assert "sk-test-value" not in repr(settings)
 
 
@@ -68,7 +68,7 @@ def test_print_result_can_show_sources(capsys) -> None:
 
     output = capsys.readouterr().out
     assert "Receipts are required." in output
-    assert "POLICY-001 | score=1.2500 | used" in output
+    assert "POLICY-001 | score=0.8200 | used" in output
 
 
 def test_build_application_constructs_graph_without_api_call() -> None:

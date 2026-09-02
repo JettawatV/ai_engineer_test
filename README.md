@@ -1,31 +1,42 @@
-# Agentic Policy Assistant
+# Agentic Investment Banking Job Assistant
 
 A two-agent retrieval-augmented generation project for the AI Engineer programming test.
 LangGraph orchestrates a forced-tool Data Retriever followed by a structured Report Generator.
 
-> **Dataset status:** `knowledge_base.txt` is intentionally a placeholder. The final public policy
-> source has not yet been selected. Automated tests use a clearly fictional fixture and do not make
-> any OpenAI API calls.
+`knowledge_base.txt` contains an investment-banking job description selected for the demonstration.
+Automated tests also use a clearly fictional travel-policy fixture and make no OpenAI API calls.
+
+## Knowledge-base source
+
+The demonstration knowledge base is adapted from Bangkok Bank's
+[Investment Banking Analyst job posting on LinkedIn](https://www.linkedin.com/jobs/view/4459479290/),
+accessed September 2, 2026. It is used solely as a public, real-world corpus for this programming
+test, and the posting's contact details have been omitted.
 
 ## Why this design
 
-- The Data Retriever must call one approved local BM25 tool and cannot answer directly.
+- The Data Retriever must call one approved semantic-search tool and cannot answer directly.
+- The search tool embeds every question and returns every chunk above a similarity threshold.
+- Knowledge chunks are embedded once on the first search and cached for later questions.
 - The Report Generator can use only validated retrieved chunks.
 - Pydantic contracts validate every important agent boundary.
-- Source IDs make grounding inspectable and reject invented citations.
+- Automatically generated source IDs make grounding inspectable and reject invented citations.
 - Retrieval tests are deterministic, offline, and free to run.
 
 ```mermaid
 flowchart LR
     Q[Validated query] --> D[Data Retriever]
-    D -->|forced tool call| B[Local BM25 search]
+    D -->|forced tool call| B[Semantic search tool]
     B -->|validated chunks| R[Report Generator]
     R --> V[Source-ID validation]
     V --> A[CLI answer]
 ```
 
-The retriever model can call only the local search tool. The report model receives the question and
-validated evidence, but no tools. A final check rejects any source ID that retrieval did not return.
+The retriever model can call only the local search tool, and it must call that tool for every user
+question. The tool loads the knowledge file once, embeds its chunks on the first search, and embeds
+each new question before ranking chunks by cosine similarity. The report model receives the question
+and relevant raw chunks, but no tools. A final check rejects any source ID that retrieval did not
+return.
 
 ## Project structure
 
@@ -35,7 +46,7 @@ agentic_rag/
 ├── cli.py          # command-line interface and dependency wiring
 ├── config.py       # environment-backed settings
 ├── models.py       # Pydantic contracts
-├── retrieval.py    # loading, preprocessing, and BM25 search
+├── retrieval.py    # loading, embedding validation, and semantic search
 └── workflow.py     # two-step LangGraph workflow
 tests/              # offline unit and workflow tests
 evals/cases.json    # small reviewer-readable evaluation set
@@ -61,21 +72,29 @@ Copy-Item .env.example .env
 
 Set `OPENAI_API_KEY` in `.env`. Never commit `.env`.
 
-Before a live run, replace the placeholder `knowledge_base.txt` with blank-line-separated chunks:
+`text-embedding-3-small` is the default embedding model. Document embeddings are cached in memory
+for the life of the process; each user question still triggers a fresh semantic search through the
+agent's required tool call.
+
+The loader treats each blank-line-separated paragraph as a chunk and assigns deterministic IDs such
+as `KB-001`. A standalone heading ending in `:` is attached to the paragraph that follows it:
 
 ```text
-[POLICY-001: SHORT TITLE]
-One self-contained policy paragraph.
+Qualifications:
 
-[POLICY-002: ANOTHER TITLE]
-Another self-contained policy paragraph.
+Master's degree in Finance or a related field.
+
+The role requires at least three years of relevant experience.
 ```
+
+Bracketed IDs remain optional for datasets that need human-readable identifiers. Comment lines
+beginning with `#` can hold source attribution without becoming searchable content.
 
 ## Run
 
 ```powershell
-python main.py "What approval is required for international travel?"
-python main.py "What approval is required for international travel?" --show-sources
+python main.py "What qualifications are required?"
+python main.py "Where is the position located?" --show-sources
 python main.py --interactive --show-sources
 ```
 
@@ -100,7 +119,7 @@ must remain explicit and opt-in.
 
 ## Current limitations
 
-- The included tokenizer targets an English demonstration corpus.
-- BM25 is lexical retrieval, not embedding-based semantic search.
+- Similarity thresholds may require calibration when the knowledge base or embedding model changes.
+- Document embeddings are cached only in memory and are rebuilt when the process restarts.
 - The application reads one local UTF-8 text file and does not persist conversations.
 - Pydantic validates structure; grounding checks and evaluations are still required for factuality.
