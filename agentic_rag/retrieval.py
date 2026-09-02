@@ -2,7 +2,9 @@ import re
 import unicodedata
 from math import isfinite, sqrt
 from pathlib import Path
+
 from langchain_core.embeddings import Embeddings
+
 from .models import KnowledgeChunk, RetrievalResult, RetrievedChunk
 
 CHUNK_HEADER = re.compile(

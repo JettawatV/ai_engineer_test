@@ -1,5 +1,6 @@
 from math import isfinite
 from typing import Annotated
+
 from pydantic import (
     BaseModel,
     ConfigDict,

@@ -1,6 +1,7 @@
 import argparse
 import logging
 from collections.abc import Sequence
+
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import ValidationError
 

@@ -1,10 +1,12 @@
 import json
 from pathlib import Path
+
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import ValidationError
+
 from .models import GeneratedReport, QueryText, RetrievalResult, UserQuery
 from .retrieval import SemanticRetriever, load_knowledge_chunks
 

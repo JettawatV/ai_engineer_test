@@ -1,6 +1,7 @@
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from typing_extensions import TypedDict
+
 from .models import GeneratedReport, RetrievalResult, UserQuery, WorkflowResult
 
 
