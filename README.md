@@ -108,7 +108,17 @@ pytest --cov --cov-report=term-missing
 ```
 
 The normal test suite uses test doubles for both agents and never invokes OpenAI. Live evaluations
-must remain explicit and opt-in.
+must remain explicit and opt-in. To run every case in `evals/cases.json` through one shared live
+workflow, use:
+
+```powershell
+python -m evals.run_live --show-answers
+```
+
+This command makes external API calls, prints a pass/fail result for every case, and writes a
+detailed report to `evals/results/latest.json`. The results directory is ignored by Git because
+generated answers and timings can vary between runs. A case passes only when the expected context
+status, required source chunks, and required answer phrases are present.
 
 ## Trust boundaries
 

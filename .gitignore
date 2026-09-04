@@ -7,6 +7,6 @@ __pycache__/
 .coverage
 htmlcov/
 coverage.xml
+evals/results/
 .idea/
 .vscode/
-
