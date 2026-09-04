@@ -98,6 +98,55 @@ python main.py "Where is the position located?" --show-sources
 python main.py --interactive --show-sources
 ```
 
+## Results
+
+The final verification completed successfully:
+
+- All 6 live evaluation cases passed.
+- All 29 automated tests passed.
+- Ruff lint and formatting checks passed.
+- Test coverage reached 80.93%.
+
+The screenshots below show the question, final answer, and retrieved sources from live CLI runs.
+
+### 1. Qualifications
+
+The system finds the required education and work experience.
+
+![Qualifications result](docs/screenshots/01-qualification.png)
+
+### 2. Responsibilities
+
+The system retrieves the role responsibilities and related skills.
+
+![Responsibilities result](docs/screenshots/02-responsibilities.png)
+
+### 3. Working location
+
+The system finds a direct fact from one knowledge chunk.
+
+![Working location result](docs/screenshots/03-location.png)
+
+### 4. Complete role summary
+
+The system combines responsibilities, qualifications, required skills, and location from several
+knowledge chunks.
+
+![Complete role summary result](docs/screenshots/04-summary.png)
+
+### 5. Information not provided
+
+The system explains that salary and benefit information is not available instead of inventing an
+answer.
+
+![Insufficient context result](docs/screenshots/05-insufficient.png)
+
+### 6. Hallucination resistance
+
+The system refuses a request to ignore the evidence and invent a salary.
+
+![Hallucination resistance result](docs/screenshots/06-hallucination.png)
+
 ## Verify
 
 ```powershell
